@@ -1,0 +1,33 @@
+ASoC: tas2783: give each amp a single playback channel
+
+snd_sdw_params_to_config() hands every amp the full stereo ch_mask, so two
+mono TAS2783 amps on one link mirror each other and only one renders. Derive
+a one-channel mask from the machine-assigned prefix (tas2783-1/-3 = Left,
+tas2783-2/-4 = Right). Backport of a fix proposed on linux-sound (2026-07).
+
+--- a/sound/soc/codecs/tas2783-sdw.c
++++ b/sound/soc/codecs/tas2783-sdw.c
+@@ -948,6 +948,23 @@
+ 	/* SoundWire specific configuration */
+ 	snd_sdw_params_to_config(substream, params,
+ 				 &stream_config, &port_config);
++
++	/*
++	 * Backport of the proposed upstream fix (linux-sound, 2026-07,
++	 * "no stereo channel split"): snd_sdw_params_to_config() hands every
++	 * amp the full stereo mask, so the two mono amps mirror and only one
++	 * renders. Give each amp a one-channel mask from its machine-assigned
++	 * prefix: tas2783-1/-3 are Left, tas2783-2/-4 are Right.
++	 */
++	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
++	    params_channels(params) == 2 && component->name_prefix) {
++		const char *idx_str = strrchr(component->name_prefix, '-');
++		unsigned long idx;
++
++		if (idx_str && !kstrtoul(idx_str + 1, 10, &idx) && idx)
++			port_config.ch_mask = (idx & 1) ? BIT(0) : BIT(1);
++	}
++
+ 	/* port 1 for playback */
+ 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
+ 		port_config.num = 1;
